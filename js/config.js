@@ -48,6 +48,8 @@ export const KODE_PREFIX = 'BK-';
 export const KODE_REGEX = /^BK-\d{3,}$/;
 export const LOAN_PREFIX = 'PJ-';
 export const LOAN_KODE_REGEX = /^PJ-\d{4,}$/;
+export const PAYLOAD_PREFIX = 'PD1-';
+export const PAYLOAD_REGEX = /^PD1-[A-Z2-7]{16,}$/;
 
 export const LIMITS = Object.freeze({
   nama: { min: 2, max: 60 },
@@ -174,7 +176,7 @@ export const ERRORS = Object.freeze({
   DUPLIKAT_AKTIF: 'Kamu masih punya pinjaman aktif untuk judul ini.',
   BATAS_PINJAM: `Maksimal ${MAX_ACTIVE_LOANS} pinjaman aktif sekaligus.`,
   QR_TIDAK_DIKENALI: 'QR Code ini bukan milik Pustaka.',
-  TIDAK_ADA_PENGAJUAN: 'Tidak ada pengajuan aktif untuk kode ini.',
+  TIDAK_ADA_PENGAJUAN: 'Tidak ada pengajuan aktif untuk kode ini di perangkat ini.',
   KEDALUWARSA: `Batas ambil ${LOAN_HOLD_MINUTES} menit sudah lewat.`,
   STATUS_TIDAK_VALID: 'Perubahan status ini tidak diizinkan.',
   BUKAN_PEMILIK: 'Peminjaman ini bukan milikmu.',

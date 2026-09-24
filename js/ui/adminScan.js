@@ -1,5 +1,5 @@
-import { LOAN_HOLD_MINUTES, LOAN_HOLD_MS } from '../config.js';
-import { findScanTarget, pendingLoans, verifyAndBorrow } from '../loans.js';
+import { LOAN_HOLD_MINUTES, LOAN_HOLD_MS, LOAN_KODE_REGEX, PAYLOAD_PREFIX } from '../config.js';
+import { findScanTarget, pendingLoans, readLoanPayload, verifyAndBorrow } from '../loans.js';
 import { createScanner } from '../scanner.js';
 import {
   button,
@@ -26,11 +26,23 @@ const STATUS_TEXT = {
 };
 
 const HINTS = {
-  QR_TIDAK_DIKENALI: 'Kode harus berformat BK-000 (label buku) atau PJ-0000 (layar siswa).',
-  BUKU_TIDAK_ADA: 'Cek kembali kode yang tertera di label buku.',
-  TIDAK_ADA_PENGAJUAN: 'Minta siswa membuat pengajuan baru, atau pindai label bukunya.',
+  QR_TIDAK_DIKENALI: 'Kode harus BK-000 (label buku), PJ-0000, atau kode kiriman dari layar siswa.',
+  BUKU_TIDAK_ADA: 'Kode buku ini tidak ada di katalog perangkat ini.',
+  TIDAK_ADA_PENGAJUAN:
+    'Kalau siswa mengajukan dari HP, pengajuannya tersimpan di HP itu — minta dia memindai atau menyalin kode kiriman dari layar pengajuan.',
   KEDALUWARSA: 'Minta siswa mengajukan ulang lalu pindai kode yang baru.',
   STATUS_TIDAK_VALID: 'Pengajuan ini mungkin sudah diserahkan sebelumnya.',
+};
+
+const ringkas = (value) => {
+  const teks = String(value ?? '').trim();
+  return teks.length > 28 ? `${teks.slice(0, 14)}…${teks.slice(-6)}` : teks;
+};
+
+const sumberLabel = (terbaca) => {
+  if (terbaca.startsWith(PAYLOAD_PREFIX)) return 'kode kiriman siswa';
+  if (LOAN_KODE_REGEX.test(terbaca)) return `kode pengajuan ${terbaca}`;
+  return `label buku ${terbaca}`;
 };
 
 const sisaWaktu = (until) => el('span', { class: 'tnum text-[13px]', dataset: { until: String(until) } }, formatCountdown(Number(until) - Date.now()));
@@ -65,10 +77,10 @@ export function render({ onCleanup, onExternalChange }) {
   const pencarian = { q: '' };
 
   const kodeManual = field({
-    label: 'Kode buku atau kode pengajuan',
+    label: 'Kode buku, kode pengajuan, atau kode kiriman',
     name: 'kode',
-    placeholder: 'BK-001 atau PJ-0001',
-    hint: 'BK-001 dibaca dari label buku. PJ-0001 dibaca dari layar pengajuan siswa.',
+    placeholder: 'BK-001 / PJ-0001 / PD1-…',
+    hint: 'Kode kiriman dari layar HP siswa bisa ditempel di sini kalau kamera tidak dipakai.',
   });
   kodeManual.control.addEventListener('input', () => {
     const upper = kodeManual.value().toUpperCase();
@@ -115,7 +127,7 @@ export function render({ onCleanup, onExternalChange }) {
         'div',
         { class: 'flex flex-col gap-2' },
         notice({ tone: 'danger', title: result.message, message: HINTS[result.code] ?? '' }),
-        el('p', { class: 'tnum text-[12px] text-ink-mute' }, `Kode terbaca: ${kode}`),
+        el('p', { class: 'tnum text-[12px] text-ink-mute' }, `Kode terbaca: ${ringkas(kode)}`),
       ),
     );
 
@@ -129,7 +141,7 @@ export function render({ onCleanup, onExternalChange }) {
           title: loan.bookJudul,
           message: `Diserahkan ke ${loan.namaSiswa} (${loan.kelas}) · ${formatDateTime(loan.dipinjamPada)} · ${loan.id}`,
         }),
-        el('p', { class: 'tnum text-[12px] text-ink-mute' }, `Kode terbaca: ${kode}`),
+        el('p', { class: 'text-[12px] text-ink-mute' }, `Sumber: ${sumberLabel(kode)}`),
       ),
     );
 
@@ -206,7 +218,11 @@ export function render({ onCleanup, onExternalChange }) {
       return;
     }
 
-    const { kandidat } = target.data;
+    const { kandidat, diimpor } = target.data;
+
+    if (diimpor) {
+      toast(`Pengajuan dari perangkat lain diterima: ${kandidat[0].bookJudul}.`, { tone: 'info' });
+    }
 
     if (kandidat.length === 1) {
       await serahkan(kandidat[0], kode);
@@ -364,7 +380,7 @@ export function render({ onCleanup, onExternalChange }) {
       eyebrow: 'Pengajuan & scan',
       title: 'Cocokkan buku dengan pengajuan.',
       description:
-        'Pindai QR pengajuan di layar siswa untuk langsung menyerahkan buku, atau pindai QR pada label buku lalu pilih nama yang hadir.',
+        'Pindai QR pengajuan di layar siswa — termasuk dari HP yang berbeda — atau pindai QR pada label buku lalu pilih nama yang hadir.',
       meta: el(
         'div',
         { class: 'mt-5 flex flex-wrap items-center gap-2' },

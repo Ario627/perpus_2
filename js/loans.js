@@ -2,10 +2,14 @@ import {
   ACTIVE_STATUS,
   HISTORY_STATUS,
   KEYS,
+  KODE_PREFIX,
   KODE_REGEX,
   LOAN_HOLD_MS,
   LOAN_KODE_REGEX,
+  LOAN_PREFIX,
   MAX_ACTIVE_LOANS,
+  PAYLOAD_PREFIX,
+  PAYLOAD_REGEX,
   ROLES,
   STATUS,
   TRANSITIONS,
@@ -19,6 +23,57 @@ const asList = (value) => (Array.isArray(value) ? value : []);
 const text = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
 const kodeOf = (value) => text(value).toUpperCase();
 const stampOf = (loan) => loan?.dikembalikanPada ?? loan?.kedaluwarsaPada ?? loan?.diajukanPada ?? 0;
+
+const B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+
+const toBase32 = (value) => {
+  const bytes = new TextEncoder().encode(value);
+  let buffer = 0;
+  let bits = 0;
+  let out = '';
+
+  for (const byte of bytes) {
+    buffer = (buffer << 8) | byte;
+    bits += 8;
+
+    while (bits >= 5) {
+      out += B32[(buffer >>> (bits - 5)) & 31];
+      bits -= 5;
+    }
+
+    buffer &= (1 << bits) - 1;
+  }
+
+  if (bits > 0) out += B32[(buffer << (5 - bits)) & 31];
+  return out;
+};
+
+const fromBase32 = (value) => {
+  const bytes = [];
+  let buffer = 0;
+  let bits = 0;
+
+  for (const char of value.toUpperCase()) {
+    const index = B32.indexOf(char);
+    if (index < 0) return null;
+
+    buffer = (buffer << 5) | index;
+    bits += 5;
+
+    if (bits >= 8) {
+      bytes.push((buffer >>> (bits - 8)) & 255);
+      bits -= 8;
+    }
+
+    buffer &= (1 << bits) - 1;
+  }
+
+  try {
+    return new TextDecoder().decode(Uint8Array.from(bytes));
+  } catch {
+    return null;
+  }
+};
 
 export const SCAN_SOURCE = Object.freeze({ BUKU: 'BUKU', PENGAJUAN: 'PENGAJUAN' });
 
@@ -139,9 +194,101 @@ export function findScanCandidates(kode, now = Date.now()) {
   return candidates.length > 0 ? ok(candidates) : fail('TIDAK_ADA_PENGAJUAN');
 }
 
+export function loanPayload(loan) {
+  const urutan = Number.parseInt(String(loan?.id ?? '').slice(LOAN_PREFIX.length), 10);
+  const buku = Number.parseInt(String(loan?.bookKode ?? '').slice(KODE_PREFIX.length), 10);
+  if (!Number.isInteger(urutan) || !Number.isInteger(buku)) return '';
+
+  const isi = [urutan, buku, text(loan.namaSiswa), text(loan.kelas), Number(loan.batasAmbil)];
+  if (!isi[2] || !isi[3] || !Number.isFinite(isi[4])) return '';
+
+  return `${PAYLOAD_PREFIX}${toBase32(JSON.stringify(isi))}`;
+}
+
+export function readLoanPayload(value) {
+  const mentah = String(value ?? '').trim().toUpperCase();
+  if (!PAYLOAD_REGEX.test(mentah)) return null;
+
+  const teks = fromBase32(mentah.slice(PAYLOAD_PREFIX.length));
+  if (!teks) return null;
+
+  try {
+    const [urutan, buku, namaSiswa, kelas, batasAmbil] = JSON.parse(teks);
+    if (!Number.isInteger(urutan) || urutan < 1) return null;
+    if (!Number.isInteger(buku) || buku < 1) return null;
+    if (!text(namaSiswa) || !text(kelas)) return null;
+    if (!Number.isFinite(Number(batasAmbil))) return null;
+
+    return {
+      id: `${LOAN_PREFIX}${String(urutan).padStart(4, '0')}`,
+      bookKode: `${KODE_PREFIX}${String(buku).padStart(3, '0')}`,
+      namaSiswa: text(namaSiswa),
+      kelas: text(kelas),
+      batasAmbil: Number(batasAmbil),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function adoptLoan(payload, now = Date.now()) {
+  const sumber = payload?.id;
+  const book = findBook(payload?.bookKode);
+  if (!sumber || !book) return fail('BUKU_TIDAK_ADA');
+  if (Number(payload.batasAmbil) <= now) return fail('KEDALUWARSA');
+
+  let hasil = null;
+
+  const written = commit(KEYS.loans, (value) => {
+    const list = asList(value).map((loan) => expireInPlace(loan, now));
+    const ada = list.find((loan) => loan.id === sumber || loan.sumberId === sumber);
+
+    if (ada) {
+      hasil = { loan: ada, baru: false };
+      return ok(list);
+    }
+
+    const dibuat = {
+      id: reserveId(list),
+      sumberId: sumber,
+      bookKode: payload.bookKode,
+      bookJudul: book.judul,
+      namaSiswa: payload.namaSiswa,
+      kelas: payload.kelas,
+      status: STATUS.DIPESAN,
+      diajukanPada: now,
+      batasAmbil: Math.min(Number(payload.batasAmbil), now + LOAN_HOLD_MS),
+      dipinjamPada: null,
+      dikembalikanPada: null,
+      kedaluwarsaPada: null,
+    };
+
+    hasil = { loan: dibuat, baru: true };
+    return ok([...list, dibuat]);
+  });
+
+  return written.ok ? ok(hasil) : written;
+}
+
 export function findScanTarget(kode, now = Date.now()) {
-  const code = kodeOf(kode);
-  if (!code) return fail('QR_TIDAK_DIKENALI');
+  const mentah = String(kode ?? '').trim();
+  if (!mentah) return fail('QR_TIDAK_DIKENALI');
+
+  const payload = readLoanPayload(mentah);
+
+  if (payload) {
+    const adopsi = adoptLoan(payload, now);
+    if (!adopsi.ok) return adopsi;
+    if (!holdsStock(adopsi.data.loan, now)) return fail('KEDALUWARSA');
+
+    return ok({
+      sumber: SCAN_SOURCE.PENGAJUAN,
+      diimpor: adopsi.data.baru,
+      kandidat: [adopsi.data.loan],
+    });
+  }
+
+  const code = kodeOf(mentah);
 
   if (LOAN_KODE_REGEX.test(code)) {
     const loan = asList(load(KEYS.loans, [])).find((item) => item.id === code);
@@ -150,7 +297,7 @@ export function findScanTarget(kode, now = Date.now()) {
     if (loan.status !== STATUS.DIPESAN) return fail('STATUS_TIDAK_VALID');
     if (!holdsStock(loan, now)) return fail('KEDALUWARSA');
 
-    return ok({ sumber: SCAN_SOURCE.PENGAJUAN, kandidat: [loan] });
+    return ok({ sumber: SCAN_SOURCE.PENGAJUAN, diimpor: false, kandidat: [loan] });
   }
 
   if (!KODE_REGEX.test(code)) return fail('QR_TIDAK_DIKENALI');
@@ -159,7 +306,7 @@ export function findScanTarget(kode, now = Date.now()) {
   const kandidat = awaitingPickup(now).filter((loan) => loan.bookKode === code);
   if (kandidat.length === 0) return fail('TIDAK_ADA_PENGAJUAN');
 
-  return ok({ sumber: SCAN_SOURCE.BUKU, kandidat });
+  return ok({ sumber: SCAN_SOURCE.BUKU, diimpor: false, kandidat });
 }
 
 export function verifyAndBorrow(loanId, scannedKode) {

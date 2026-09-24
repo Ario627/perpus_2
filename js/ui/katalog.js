@@ -1,6 +1,6 @@
 import { KATEGORI, LOAN_HOLD_MINUTES, ROLES, SEARCH_DEBOUNCE_MS } from '../config.js';
 import { browse, summary } from '../books.js';
-import { createLoan, quotaFor } from '../loans.js';
+import { createLoan, loanPayload, quotaFor } from '../loans.js';
 import {
   alertBox,
   bookBadge,
@@ -159,16 +159,20 @@ export function render({ session, query, navigate, patchQuery, onCleanup }) {
       modal.setBody(
         kodePengajuanPanel({
           loan,
+          qrValue: loanPayload(loan),
           catatan: `Buku ditahan sampai ${formatClock(loan.batasAmbil)}. Kalau lewat, pengajuan batal sendiri dan stok kembali ke rak.`,
         }),
       );
       modal.setActions([
         button({
-          label: 'Salin detail',
+          label: 'Salin kode kirim',
           variant: 'outline',
           onClick: async () => {
-            const done = await copy(rincian(loan));
-            toast(done ? 'Detail pengajuan disalin.' : 'Gagal menyalin.', { tone: done ? 'sukses' : 'gagal' });
+            const done = await copy(loanPayload(loan));
+            toast(
+              done ? 'Kode kirim disalin. Kirim ke petugas kalau kamera tidak bisa dipakai.' : 'Gagal menyalin.',
+              { tone: done ? 'sukses' : 'gagal' },
+            );
           },
         }),
         button({ label: 'Lihat pinjaman saya', variant: 'ghost', onClick: () => { modal.close(); navigate('#/pinjaman'); } }),

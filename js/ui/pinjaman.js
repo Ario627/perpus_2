@@ -1,6 +1,6 @@
 import { LOAN_HOLD_MINUTES, LOAN_HOLD_MS, STATUS } from '../config.js';
 import { findBook } from '../books.js';
-import { loansFor, quotaFor, returnLoan } from '../loans.js';
+import { loansFor, loanPayload, quotaFor, returnLoan } from '../loans.js';
 import {
   alertBox,
   button,
@@ -221,15 +221,19 @@ export function render({ session, query, refresh, patchQuery }) {
       size: 'sm',
       body: kodePengajuanPanel({
         loan,
-        catatan: 'Minta petugas memindai QR di atas. Kalau kamera petugas bermasalah, sebutkan kode pengajuan ini.',
+        qrValue: loanPayload(loan),
+        catatan: 'Minta petugas memindai QR di atas. Kode pengajuan di bawah tetap bisa disebutkan kalau kamera bermasalah.',
       }),
       actions: [
         button({
-          label: 'Salin detail',
+          label: 'Salin kode kirim',
           variant: 'outline',
           onClick: async () => {
-            const done = await copy(rincian(loan));
-            toast(done ? 'Detail pengajuan disalin.' : 'Gagal menyalin.', { tone: done ? 'sukses' : 'gagal' });
+            const done = await copy(loanPayload(loan));
+            toast(
+              done ? 'Kode kirim disalin. Kirim ke petugas kalau kamera tidak bisa dipakai.' : 'Gagal menyalin.',
+              { tone: done ? 'sukses' : 'gagal' },
+            );
           },
         }),
       ],

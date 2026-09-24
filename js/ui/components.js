@@ -653,7 +653,7 @@ export function showFieldErrors(bindings, result) {
   return entries.length > 0;
 }
 
-export function kodePengajuanPanel({ loan, catatan = '' } = {}) {
+export function kodePengajuanPanel({ loan, qrValue = '', catatan = '' } = {}) {
   const holder = el('div', { class: 'w-fit rounded-2xl border border-line bg-white p-3.5' });
   const sisa = el(
     'span',
@@ -661,7 +661,7 @@ export function kodePengajuanPanel({ loan, catatan = '' } = {}) {
     formatCountdown(Number(loan.batasAmbil) - Date.now()),
   );
 
-  renderQr(holder, loan.id, 232);
+  renderQr(holder, qrValue || loan.id, 232);
 
   return el(
     'div',
@@ -671,7 +671,11 @@ export function kodePengajuanPanel({ loan, catatan = '' } = {}) {
       { class: 'flex flex-col items-center gap-4 rounded-2xl border border-tunggu-line bg-tunggu-bg px-4 py-5 text-tunggu-fg' },
       holder,
       el('p', { class: 'font-display text-[32px] leading-none tnum' }, loan.id),
-      el('p', { class: 'max-w-[16rem] text-center text-[12.5px] leading-relaxed opacity-90' }, 'Petugas cukup memindai QR ini — tidak perlu mengetik kode.'),
+      el(
+        'p',
+        { class: 'max-w-[17rem] text-center text-[12.5px] leading-relaxed opacity-90' },
+        'Petugas memindai QR ini untuk menyerahkan buku — berlaku juga kalau petugas memakai perangkat lain.',
+      ),
     ),
     dataList(
       dataPair('Judul', loan.bookJudul),
