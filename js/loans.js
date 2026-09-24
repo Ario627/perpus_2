@@ -237,11 +237,20 @@ export function adoptLoan(payload, now = Date.now()) {
   if (!sumber || !book) return fail('BUKU_TIDAK_ADA');
   if (Number(payload.batasAmbil) <= now) return fail('KEDALUWARSA');
 
+  const pemilik = normalizeIdentity(payload.namaSiswa, payload.kelas);
   let hasil = null;
 
   const written = commit(KEYS.loans, (value) => {
     const list = asList(value).map((loan) => expireInPlace(loan, now));
-    const ada = list.find((loan) => loan.id === sumber || loan.sumberId === sumber);
+
+    const sudahDiimpor = list.find((loan) => loan.sumberId === sumber);
+    const sekubuku = list.find(
+      (loan) =>
+        loan.bookKode === payload.bookKode &&
+        loan.status === STATUS.DIPESAN &&
+        ownerKeyOfLoan(loan) === pemilik,
+    );
+    const ada = sudahDiimpor ?? sekubuku;
 
     if (ada) {
       hasil = { loan: ada, baru: false };
@@ -336,7 +345,7 @@ export function verifyAndBorrow(loanId, scannedKode) {
   return written.ok ? ok(taken) : written;
 }
 
-export function returnLoan(loanId, { kodeBuku, namaSiswa, kelas } = {}) {
+export function returnLoan(loanId, { kodeBuku, namaSiswa, kelas, olehPetugas = false } = {}) {
   const now = Date.now();
   const pemilik = normalizeIdentity(namaSiswa, kelas);
   const bookKode = kodeOf(kodeBuku);
@@ -348,7 +357,7 @@ export function returnLoan(loanId, { kodeBuku, namaSiswa, kelas } = {}) {
     if (index < 0) return fail('TIDAK_ADA_PENGAJUAN');
 
     const loan = list[index];
-    if (ownerKeyOfLoan(loan) !== pemilik) return fail('BUKAN_PEMILIK');
+    if (!olehPetugas && ownerKeyOfLoan(loan) !== pemilik) return fail('BUKAN_PEMILIK');
     if (loan.status !== STATUS.DIPINJAM) return fail('STATUS_TIDAK_VALID');
     if (loan.bookKode !== bookKode) return fail('KODE_TIDAK_COCOK');
 

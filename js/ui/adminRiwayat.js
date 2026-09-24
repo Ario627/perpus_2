@@ -1,5 +1,5 @@
 import { STATUS, STATUS_UI } from '../config.js';
-import { listLoans } from '../loans.js';
+import { listLoans, returnLoan } from '../loans.js';
 import {
   button,
   chip,
@@ -8,8 +8,11 @@ import {
   field,
   formatDate,
   formatDateTime,
+  notice,
+  openModal,
   pageHead,
   shell,
+  showFieldErrors,
   stat,
   statusBadge,
   toast,
@@ -62,7 +65,7 @@ export function render() {
   const baris = ({ loan, statusKey }) =>
     el(
       'li',
-      { class: 'grid gap-2.5 rounded-2xl border border-line bg-surface p-4 shadow-card md:grid-cols-[7rem_minmax(0,1fr)_9.5rem_12rem] md:items-center md:gap-5' },
+      { class: 'grid gap-2.5 rounded-2xl border border-line bg-surface p-4 shadow-card md:grid-cols-[7rem_minmax(0,1fr)_9.5rem_11rem_auto] md:items-center md:gap-5' },
       el(
         'div',
         { class: 'flex items-center justify-between gap-3 md:block' },
@@ -82,7 +85,89 @@ export function render() {
         el('p', { class: 'text-[12.5px] text-ink-mute md:hidden' }, jejakWaktu(loan, statusKey)),
       ),
       el('p', { class: 'hidden text-[12.5px] text-ink-mute md:block md:text-right' }, jejakWaktu(loan, statusKey)),
+      statusKey === STATUS.DIPINJAM
+        ? el(
+            'div',
+            { class: 'md:text-right' },
+            button({ label: 'Terima kembali', variant: 'outline', size: 'sm', onClick: () => bukaKembali(loan) }),
+          )
+        : null,
     );
+
+  function bukaKembali(loan) {
+    const bindings = {};
+    const errorBox = el('div');
+
+    const kodeField = field({
+      label: 'Kode buku',
+      name: 'kodeBuku',
+      placeholder: loan.bookKode,
+      required: true,
+      hint: 'Ketik kode pada label buku untuk memastikan buku fisik yang diterima memang benar.',
+    });
+
+    bindings.kodeBuku = kodeField;
+
+    kodeField.control.addEventListener('input', () => {
+      const besar = kodeField.value().toUpperCase();
+      if (kodeField.value() !== besar) kodeField.setValue(besar);
+    });
+
+    const form = el(
+      'form',
+      {
+        class: 'flex flex-col gap-4',
+        novalidate: true,
+        onSubmit: (event) => {
+          event.preventDefault();
+          kirim();
+        },
+      },
+      el(
+        'div',
+        { class: 'rounded-2xl border border-line bg-paper px-4 py-3' },
+        el('p', { class: 'font-display text-[19px] leading-snug' }, loan.bookJudul),
+        el('p', { class: 'mt-1 text-[12.5px] text-ink-mute' }, `${loan.id} · ${loan.namaSiswa} · ${loan.kelas}`),
+      ),
+      kodeField.wrap,
+      errorBox,
+      notice({
+        tone: 'info',
+        message: 'Stok bertambah satu begitu pengembalian tercatat. Pastikan buku sudah diterima petugas.',
+      }),
+    );
+
+    const modal = openModal({
+      title: 'Terima pengembalian',
+      description: `Dipinjam sejak ${formatDateTime(loan.dipinjamPada)}`,
+      size: 'sm',
+      body: form,
+      actions: [
+        button({ label: 'Batal', variant: 'ghost', onClick: () => modal.close() }),
+        button({ label: 'Catat kembali', variant: 'primary', onClick: () => kirim() }),
+      ],
+    });
+
+    function kirim() {
+      const result = returnLoan(loan.id, {
+        kodeBuku: kodeField.value(),
+        namaSiswa: loan.namaSiswa,
+        kelas: loan.kelas,
+        olehPetugas: true,
+      });
+
+      if (!result.ok) {
+        const adaField = showFieldErrors(bindings, result);
+        if (!adaField) kodeField.setError(result.message);
+        errorBox.replaceChildren();
+        return;
+      }
+
+      modal.close();
+      toast(`${result.data.bookJudul} diterima kembali dari ${result.data.namaSiswa}.`, { tone: 'sukses' });
+      paint();
+    }
+  }
 
   function paint() {
     const semua = listLoans({});
@@ -205,11 +290,12 @@ export function render() {
         { class: 'mt-6' },
         el(
           'div',
-          { class: 'hidden gap-5 px-4 pb-2 md:grid md:grid-cols-[7rem_minmax(0,1fr)_9.5rem_12rem] md:items-center' },
+          { class: 'hidden gap-5 px-4 pb-2 md:grid md:grid-cols-[7rem_minmax(0,1fr)_9.5rem_11rem_auto] md:items-center' },
           el('span', { class: 'text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-mute' }, 'ID'),
           el('span', { class: 'text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-mute' }, 'Buku & peminjam'),
           el('span', { class: 'text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-mute' }, 'Status'),
           el('span', { class: 'text-right text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-mute' }, 'Waktu'),
+          el('span', {}),
         ),
         hitung,
         list,
