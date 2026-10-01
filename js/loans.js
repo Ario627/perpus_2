@@ -2,14 +2,14 @@ import {
   ACTIVE_STATUS,
   HISTORY_STATUS,
   KEYS,
-  KODE_PREFIX,
   KODE_REGEX,
   LOAN_HOLD_MS,
   LOAN_KODE_REGEX,
-  LOAN_PREFIX,
   MAX_ACTIVE_LOANS,
   PAYLOAD_PREFIX,
   PAYLOAD_REGEX,
+  RECEIPT_PREFIX,
+  RECEIPT_REGEX,
   ROLES,
   STATUS,
   TRANSITIONS,
@@ -17,7 +17,7 @@ import {
 import { findBook, holdsStock, indexHolds, readBooks, stockFor } from './books.js';
 import { fail, ok } from './result.js';
 import { normalizeIdentity, ownerKeyOfLoan, validateIdentity } from './session.js';
-import { commit, load, nextLoanId } from './storage.js';
+import { commit, load, nextLoanId, uid } from './storage.js';
 
 const asList = (value) => (Array.isArray(value) ? value : []);
 const text = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -76,6 +76,9 @@ const fromBase32 = (value) => {
 };
 
 export const SCAN_SOURCE = Object.freeze({ BUKU: 'BUKU', PENGAJUAN: 'PENGAJUAN' });
+
+export const sumberIdOf = (loan) =>
+  text(loan?.sumberId) || text(loan?.token) || `${text(loan?.id)}-${Number(loan?.diajukanPada) || 0}`;
 
 const awaitingPickup = (now) =>
   asList(load(KEYS.loans, []))
@@ -168,6 +171,7 @@ export function createLoan({ kode, namaSiswa, kelas } = {}, session = null) {
 
     created = {
       id: reserveId(list),
+      token: uid(),
       bookKode,
       bookJudul: book.judul,
       namaSiswa: identity.data.nama,
@@ -195,14 +199,16 @@ export function findScanCandidates(kode, now = Date.now()) {
 }
 
 export function loanPayload(loan) {
-  const urutan = Number.parseInt(String(loan?.id ?? '').slice(LOAN_PREFIX.length), 10);
-  const buku = Number.parseInt(String(loan?.bookKode ?? '').slice(KODE_PREFIX.length), 10);
-  if (!Number.isInteger(urutan) || !Number.isInteger(buku)) return '';
+  const sumberId = sumberIdOf(loan);
+  const bookKode = kodeOf(loan?.bookKode);
+  const namaSiswa = text(loan?.namaSiswa);
+  const kelas = text(loan?.kelas);
+  const diajukanPada = Number(loan?.diajukanPada) || 0;
+  const batasAmbil = Number(loan?.batasAmbil) || 0;
 
-  const isi = [urutan, buku, text(loan.namaSiswa), text(loan.kelas), Number(loan.batasAmbil)];
-  if (!isi[2] || !isi[3] || !Number.isFinite(isi[4])) return '';
+  if (!sumberId || !bookKode || !namaSiswa || !kelas || batasAmbil <= 0) return '';
 
-  return `${PAYLOAD_PREFIX}${toBase32(JSON.stringify(isi))}`;
+  return `${PAYLOAD_PREFIX}${toBase32(JSON.stringify([sumberId, bookKode, namaSiswa, kelas, diajukanPada, batasAmbil]))}`;
 }
 
 export function readLoanPayload(value) {
@@ -213,17 +219,16 @@ export function readLoanPayload(value) {
   if (!teks) return null;
 
   try {
-    const [urutan, buku, namaSiswa, kelas, batasAmbil] = JSON.parse(teks);
-    if (!Number.isInteger(urutan) || urutan < 1) return null;
-    if (!Number.isInteger(buku) || buku < 1) return null;
-    if (!text(namaSiswa) || !text(kelas)) return null;
-    if (!Number.isFinite(Number(batasAmbil))) return null;
+    const [sumberId, bookKode, namaSiswa, kelas, diajukanPada, batasAmbil] = JSON.parse(teks);
+    if (!text(sumberId) || !text(bookKode) || !text(namaSiswa) || !text(kelas)) return null;
+    if (!Number.isFinite(Number(batasAmbil)) || Number(batasAmbil) <= 0) return null;
 
     return {
-      id: `${LOAN_PREFIX}${String(urutan).padStart(4, '0')}`,
-      bookKode: `${KODE_PREFIX}${String(buku).padStart(3, '0')}`,
+      sumberId: text(sumberId),
+      bookKode: text(bookKode).toUpperCase(),
       namaSiswa: text(namaSiswa),
       kelas: text(kelas),
+      diajukanPada: Number(diajukanPada) || 0,
       batasAmbil: Number(batasAmbil),
     };
   } catch {
@@ -231,8 +236,90 @@ export function readLoanPayload(value) {
   }
 }
 
+export function receiptPayload(loan) {
+  const sumberId = sumberIdOf(loan);
+  const status = loan?.status === STATUS.DIKEMBALIKAN ? STATUS.DIKEMBALIKAN : loan?.status === STATUS.DIPINJAM ? STATUS.DIPINJAM : null;
+  if (!sumberId || !status) return '';
+
+  const isi = [
+    sumberId,
+    status,
+    Number(loan?.dipinjamPada) || 0,
+    Number(loan?.dikembalikanPada) || 0,
+    kodeOf(loan?.bookKode),
+    text(loan?.namaSiswa),
+    text(loan?.kelas),
+  ];
+
+  return `${RECEIPT_PREFIX}${toBase32(JSON.stringify(isi))}`;
+}
+
+export function readReceiptPayload(value) {
+  const mentah = String(value ?? '').trim().toUpperCase();
+  if (!RECEIPT_REGEX.test(mentah)) return null;
+
+  const teks = fromBase32(mentah.slice(RECEIPT_PREFIX.length));
+  if (!teks) return null;
+
+  try {
+    const [sumberId, status, dipinjamPada, dikembalikanPada, bookKode, namaSiswa, kelas] = JSON.parse(teks);
+    if (!text(sumberId) || !text(bookKode) || !text(namaSiswa) || !text(kelas)) return null;
+    if (status !== STATUS.DIPINJAM && status !== STATUS.DIKEMBALIKAN) return null;
+
+    return {
+      sumberId: text(sumberId),
+      status,
+      dipinjamPada: Number(dipinjamPada) || 0,
+      dikembalikanPada: Number(dikembalikanPada) || 0,
+      bookKode: text(bookKode).toUpperCase(),
+      namaSiswa: text(namaSiswa),
+      kelas: text(kelas),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function applyReceipt(payload, now = Date.now()) {
+  const target = text(payload?.sumberId);
+  if (!target) return fail('BUKTI_TIDAK_COCOK');
+
+  let hasil = null;
+
+  const written = commit(KEYS.loans, (value) => {
+    const list = asList(value);
+    const index = list.findIndex(
+      (loan) => sumberIdOf(loan) === target || text(loan.id) === target,
+    );
+    if (index < 0) return fail('BUKTI_TIDAK_COCOK');
+
+    const loan = list[index];
+    if (loan.status === payload.status) {
+      hasil = { loan, berubah: false };
+      return ok(list);
+    }
+
+    const moved = { ...loan };
+    moved.dipinjamPada = payload.dipinjamPada || Number(loan.dipinjamPada) || now;
+
+    if (payload.status === STATUS.DIKEMBALIKAN) {
+      moved.dikembalikanPada = payload.dikembalikanPada || now;
+    }
+
+    moved.status = payload.status;
+    moved.kedaluwarsaPada = null;
+
+    hasil = { loan: moved, berubah: true };
+    const next = list.slice();
+    next[index] = moved;
+    return ok(next);
+  });
+
+  return written.ok ? ok(hasil) : written;
+}
+
 export function adoptLoan(payload, now = Date.now()) {
-  const sumber = payload?.id;
+  const sumber = text(payload?.sumberId);
   const book = findBook(payload?.bookKode);
   if (!sumber || !book) return fail('BUKU_TIDAK_ADA');
   if (Number(payload.batasAmbil) <= now) return fail('KEDALUWARSA');
@@ -243,7 +330,7 @@ export function adoptLoan(payload, now = Date.now()) {
   const written = commit(KEYS.loans, (value) => {
     const list = asList(value).map((loan) => expireInPlace(loan, now));
 
-    const sudahDiimpor = list.find((loan) => loan.sumberId === sumber);
+    const sudahDiimpor = list.find((loan) => sumberIdOf(loan) === sumber);
     const sekubuku = list.find(
       (loan) =>
         loan.bookKode === payload.bookKode &&
@@ -265,7 +352,7 @@ export function adoptLoan(payload, now = Date.now()) {
       namaSiswa: payload.namaSiswa,
       kelas: payload.kelas,
       status: STATUS.DIPESAN,
-      diajukanPada: now,
+      diajukanPada: Number(payload.diajukanPada) || now,
       batasAmbil: Math.min(Number(payload.batasAmbil), now + LOAN_HOLD_MS),
       dipinjamPada: null,
       dikembalikanPada: null,

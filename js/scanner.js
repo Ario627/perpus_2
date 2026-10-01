@@ -8,6 +8,31 @@ const REAR_HINTS = [/back/i, /belakang/i, /rear/i, /environment/i, /wide/i];
 
 const normalise = (value) => String(value ?? '').replace(/\s+/g, '').toUpperCase();
 
+const secureEnough = () => {
+  if (!globalThis.isSecureContext) return false;
+  if (!globalThis.navigator?.mediaDevices?.getUserMedia) return false;
+  return true;
+};
+
+export function cameraSupport() {
+  if (typeof globalThis.Html5Qrcode !== 'function') {
+    return fail('KAMERA_GAGAL', 'Pustaka pemindai belum termuat. Periksa koneksi lalu muat ulang.');
+  }
+
+  if (!globalThis.isSecureContext) {
+    return fail(
+      'KAMERA_DIBLOKIR',
+      'Browser memblokir kamera karena alamat ini bukan localhost/HTTPS. Pakai kode manual, atau buka aplikasi lewat localhost atau HTTPS.',
+    );
+  }
+
+  if (!globalThis.navigator?.mediaDevices?.getUserMedia) {
+    return fail('KAMERA_GAGAL', 'Browser ini tidak menyediakan akses kamera. Pakai kode manual.');
+  }
+
+  return ok(true);
+}
+
 const withDeadline = (promise, ms) =>
   Promise.race([
     promise.then((value) => value).catch(() => null),
@@ -35,6 +60,13 @@ const rearCameraId = async (ctor) => {
 
 export function describeCameraFailure(error) {
   const name = String(error?.name ?? error?.message ?? '');
+
+  if (!secureEnough()) {
+    return fail(
+      'KAMERA_DIBLOKIR',
+      'Browser memblokir kamera karena alamat ini bukan localhost/HTTPS. Pakai kode manual, atau buka aplikasi lewat localhost atau HTTPS.',
+    );
+  }
 
   if (CREDENTIAL_ERRORS.has(name)) return fail('KAMERA_GAGAL', 'Izin kamera ditolak. Aktifkan izin lalu coba lagi.');
   if (DEVICE_ERRORS.has(name)) return fail('KAMERA_GAGAL', 'Kamera tidak tersedia. Pakai input kode manual.');
@@ -121,6 +153,12 @@ export function createScanner({ elementId, onCode, onState = () => {} } = {}) {
 
   async function start() {
     if (state.phase === 'running') return ok(true);
+
+    const didukung = cameraSupport();
+    if (!didukung.ok) {
+      announce('error', didukung);
+      return didukung;
+    }
 
     const mine = (generation += 1);
     announce('starting');

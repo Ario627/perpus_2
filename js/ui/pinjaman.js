@@ -1,6 +1,7 @@
-import { LOAN_HOLD_MINUTES, LOAN_HOLD_MS, STATUS } from '../config.js';
+import { KEYS, LOAN_HOLD_MINUTES, LOAN_HOLD_MS, RECEIPT_PARAM, STATUS, STATUS_UI } from '../config.js';
 import { findBook } from '../books.js';
-import { loansFor, loanPayload, quotaFor, returnLoan } from '../loans.js';
+import { applyReceipt, loanPayload, loansFor, quotaFor, readReceiptPayload, returnLoan } from '../loans.js';
+import { forgetTab, loadTab } from '../storage.js';
 import {
   alertBox,
   button,
@@ -58,6 +59,42 @@ export function render({ session, query, refresh, patchQuery }) {
   const tab = query.get('tab') === 'riwayat' ? 'riwayat' : 'aktif';
   const list = el('div', { class: 'flex flex-col gap-3' });
   const head = el('div');
+
+  const terapkanBukti = (kode, { lapor = true } = {}) => {
+    const isi = readReceiptPayload(kode);
+    if (!isi) {
+      const gagal = { ok: false, message: 'Kode bukti tidak dikenali.' };
+      if (lapor) toast(gagal.message, { tone: 'gagal' });
+      return gagal;
+    }
+
+    const hasil = applyReceipt(isi);
+    forgetTab(KEYS.pendingBukti);
+    if (query.get(RECEIPT_PARAM)) patchQuery({ [RECEIPT_PARAM]: null });
+
+    if (!hasil.ok) {
+      if (lapor) toast(hasil.message, { tone: 'gagal' });
+      return hasil;
+    }
+
+    const label = STATUS_UI[hasil.data.loan.status]?.label ?? hasil.data.loan.status;
+
+    if (lapor) {
+      toast(
+        hasil.data.berubah
+          ? `${hasil.data.loan.bookJudul} diperbarui menjadi ${label}.`
+          : 'Status di perangkat ini sudah sesuai dengan catatan petugas.',
+        { tone: hasil.data.berubah ? 'sukses' : 'info' },
+      );
+    }
+
+    return { ok: true, berubah: hasil.data.berubah, loan: hasil.data.loan, label };
+  };
+
+  const buktiTertunda = loadTab(KEYS.pendingBukti, '');
+  const buktiAwal = String(query.get(RECEIPT_PARAM) ?? '') || (typeof buktiTertunda === 'string' ? buktiTertunda : '');
+
+  if (buktiAwal) terapkanBukti(buktiAwal);
 
   const paint = () => {
     const { aktif, riwayat } = loansFor(session.nama, session.kelas);
@@ -190,18 +227,26 @@ export function render({ session, query, refresh, patchQuery }) {
             },
           })
         : null,
+      statusKey === STATUS.DIKEMBALIKAN
+        ? null
+        : button({
+            label: statusKey === STATUS.KEDALUWARSA ? 'Tempel bukti dari petugas' : 'Sinkronkan bukti',
+            variant: statusKey === STATUS.KEDALUWARSA ? 'ink' : 'ghost',
+            size: 'sm',
+            onClick: () => bukaSinkron(),
+          }),
     );
 
     const catatan =
       statusKey === STATUS.DIKEMBALIKAN
         ? `Dipinjam selama ${durasi(Number(loan.dikembalikanPada) - Number(loan.dipinjamPada))}`
         : statusKey === STATUS.KEDALUWARSA
-          ? `Batas ambil ${LOAN_HOLD_MINUTES} menit terlewat`
+          ? `Batas ambil ${LOAN_HOLD_MINUTES} menit terlewat di perangkat ini. Kalau petugas sudah menyerahkan bukunya, tempel kode buktinya supaya status di sini ikut benar.`
           : statusKey === STATUS.DIPINJAM
             ? 'Isi form pengembalian setelah buku diserahkan kembali ke perpustakaan.'
             : '';
 
-    const footer = catatan ? el('p', { class: 'mt-3 text-[12.5px] text-ink-mute' }, catatan) : null;
+    const footer = catatan ? el('p', { class: 'mt-3 text-[12.5px] leading-relaxed text-ink-mute' }, catatan) : null;
 
     return el(
       'article',
@@ -213,6 +258,66 @@ export function render({ session, query, refresh, patchQuery }) {
       footer,
     );
   };
+
+  function bukaSinkron() {
+    const errorBox = el('div');
+
+    const kodeField = field({
+      label: 'Kode bukti dari petugas',
+      name: 'bukti',
+      placeholder: 'PD2-…',
+      hint: 'Kode yang tampil di layar petugas setelah buku diserahkan atau diterima kembali.',
+    });
+
+    const form = el(
+      'form',
+      {
+        class: 'flex flex-col gap-4',
+        novalidate: true,
+        onSubmit: (event) => {
+          event.preventDefault();
+          kirim();
+        },
+      },
+      kodeField.wrap,
+      errorBox,
+      notice({
+        tone: 'info',
+        message:
+          'Kalau kamera HP-mu bisa memindai, cukup arahkan ke QR di layar petugas — halaman ini akan membuka sendiri dan statusnya langsung diperbarui.',
+      }),
+    );
+
+    const modal = openModal({
+      title: 'Sinkronkan bukti',
+      description: 'Samakan status di perangkat ini dengan catatan petugas.',
+      size: 'sm',
+      body: form,
+      actions: [
+        button({ label: 'Batal', variant: 'ghost', onClick: () => modal.close() }),
+        button({ label: 'Terapkan', variant: 'primary', onClick: () => kirim() }),
+      ],
+    });
+
+    function kirim() {
+      const hasil = terapkanBukti(kodeField.value(), { lapor: false });
+
+      if (!hasil.ok) {
+        kodeField.setError(hasil.message);
+        errorBox.replaceChildren();
+        return;
+      }
+
+      modal.close();
+      toast(
+        hasil.berubah
+          ? `${hasil.loan.bookJudul} diperbarui menjadi ${hasil.label}.`
+          : 'Status di perangkat ini sudah sesuai dengan catatan petugas.',
+        { tone: hasil.berubah ? 'sukses' : 'info' },
+      );
+      refresh();
+    }
+  }
 
   function bukaQr(loan) {
     const modal = openModal({

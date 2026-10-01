@@ -1,7 +1,8 @@
 import { LOAN_HOLD_MINUTES, LOAN_HOLD_MS, LOAN_KODE_REGEX, PAYLOAD_PREFIX } from '../config.js';
-import { findScanTarget, pendingLoans, readLoanPayload, verifyAndBorrow } from '../loans.js';
-import { createScanner } from '../scanner.js';
+import { findScanTarget, pendingLoans, receiptPayload, verifyAndBorrow } from '../loans.js';
+import { cameraSupport, createScanner } from '../scanner.js';
 import {
+  buktiPanel,
   button,
   el,
   emptyState,
@@ -59,6 +60,8 @@ const drainBar = (until, total) => {
 };
 
 export function render({ onCleanup, onExternalChange }) {
+  const kamera = cameraSupport();
+
   const reader = el('div', { id: 'reader', class: 'aspect-square w-full' });
   const overlay = el(
     'div',
@@ -66,7 +69,9 @@ export function render({ onCleanup, onExternalChange }) {
     el(
       'p',
       { class: 'max-w-[16rem] text-[13px] leading-relaxed text-ink-soft' },
-      'Tekan mulai scan, lalu arahkan ke QR pengajuan siswa atau QR pada label buku.',
+      kamera.ok
+        ? 'Tekan mulai scan, lalu arahkan ke QR pengajuan siswa atau QR pada label buku.'
+        : 'Kamera tidak bisa dipakai di perangkat ini. Pakai kolom kode di bawah.',
     ),
   );
 
@@ -80,7 +85,9 @@ export function render({ onCleanup, onExternalChange }) {
     label: 'Kode buku, kode pengajuan, atau kode kiriman',
     name: 'kode',
     placeholder: 'BK-001 / PJ-0001 / PD1-…',
-    hint: 'Kode kiriman dari layar HP siswa bisa ditempel di sini kalau kamera tidak dipakai.',
+    hint: kamera.ok
+      ? 'Cadangan bila kamera bermasalah: tempel kode kiriman dari HP siswa di sini.'
+      : 'Tempel atau ketik kode dari siswa di sini, lalu tekan Proses.',
   });
   kodeManual.control.addEventListener('input', () => {
     const upper = kodeManual.value().toUpperCase();
@@ -94,13 +101,19 @@ export function render({ onCleanup, onExternalChange }) {
   const senter = button({ label: 'Senter', variant: 'outline', size: 'sm', onClick: () => nyalakanSenter() });
   senter.hidden = true;
 
+  if (!kamera.ok) {
+    toggle.disabled = true;
+    toggle.textContent = 'Kamera tidak tersedia';
+    status.textContent = 'Kamera diblokir. Gunakan kolom kode.';
+  }
+
   const scanner = createScanner({
     elementId: 'reader',
     onCode: (code) => prosesKode(code),
-    onState: (phase) => {
-      status.textContent = STATUS_TEXT[phase] ?? STATUS_TEXT.idle;
+    onState: (phase, detail) => {
+      status.textContent = detail?.message ?? STATUS_TEXT[phase] ?? STATUS_TEXT.idle;
       overlay.hidden = phase === 'running' || phase === 'starting';
-      toggle.textContent = phase === 'running' || phase === 'starting' ? 'Hentikan scan' : 'Mulai scan';
+      if (kamera.ok) toggle.textContent = phase === 'running' || phase === 'starting' ? 'Hentikan scan' : 'Mulai scan';
       senter.hidden = !scanner.torchReady();
     },
   });
@@ -135,12 +148,20 @@ export function render({ onCleanup, onExternalChange }) {
     setHasil(
       el(
         'div',
-        { class: 'flex flex-col gap-2' },
+        { class: 'flex flex-col gap-3' },
         notice({
           tone: 'tuntas',
           title: loan.bookJudul,
           message: `Diserahkan ke ${loan.namaSiswa} (${loan.kelas}) · ${formatDateTime(loan.dipinjamPada)} · ${loan.id}`,
         }),
+        loan.sumberId
+          ? buktiPanel({
+              kode: receiptPayload(loan),
+              judul: 'Sinkronkan ke HP siswa',
+              catatan:
+                'Kalau HP siswa tidak bisa membuka tautannya, salin kode bukti lalu kirim lewat chat — siswa menempelkannya di halaman Pinjaman Saya.',
+            })
+          : null,
         el('p', { class: 'text-[12px] text-ink-mute' }, `Sumber: ${sumberLabel(kode)}`),
       ),
     );
@@ -344,6 +365,17 @@ export function render({ onCleanup, onExternalChange }) {
       el('div', { class: 'flex items-center gap-2' }, senter, toggle),
     ),
     el('div', { class: 'relative mt-4 overflow-hidden rounded-2xl border border-line bg-paper' }, reader, overlay),
+    kamera.ok
+      ? null
+      : el(
+          'div',
+          { class: 'mt-4' },
+          notice({
+            tone: 'tunggu',
+            title: 'Kamera tidak bisa dipakai di alamat ini',
+            message: `${kamera.message} Cara paling cepat: minta siswa menekan Salin kode kirim di HP-nya, lalu tempel kodenya di kolom bawah.`,
+          }),
+        ),
     el(
       'div',
       { class: 'mt-5 border-t border-line pt-5' },
@@ -388,7 +420,13 @@ export function render({ onCleanup, onExternalChange }) {
           'span',
           { class: 'inline-flex items-center gap-2 rounded-full border border-line bg-surface px-3 py-1.5 text-[12.5px] text-ink-soft' },
           el('span', { class: 'tnum font-semibold text-ink' }, 'PJ-0000'),
-          'layar pengajuan siswa',
+          'nomor pengajuan',
+        ),
+        el(
+          'span',
+          { class: 'inline-flex items-center gap-2 rounded-full border border-line bg-surface px-3 py-1.5 text-[12.5px] text-ink-soft' },
+          el('span', { class: 'tnum font-semibold text-ink' }, 'PD1-…'),
+          'kode kiriman dari HP siswa',
         ),
         el(
           'span',

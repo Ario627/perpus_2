@@ -1,4 +1,4 @@
-import { BOOK_STATUS, STATUS_UI, TOAST_MS } from '../config.js';
+import { BOOK_STATUS, RECEIPT_PARAM, STATUS_UI, TOAST_MS } from '../config.js';
 import { renderQr } from '../qr.js';
 
 let seq = 0;
@@ -685,5 +685,49 @@ export function kodePengajuanPanel({ loan, qrValue = '', catatan = '' } = {}) {
       dataPair('Peminjam', `${loan.namaSiswa} · ${loan.kelas}`),
     ),
     catatan ? el('p', { class: 'text-[12.5px] leading-relaxed text-ink-mute' }, catatan) : null,
+  );
+}
+
+export function buktiPanel({ kode, judul, pesan = '', catatan = '' } = {}) {
+  if (!kode) return null;
+
+  const alamat = `${location.origin}${location.pathname}#/pinjaman?${RECEIPT_PARAM}=${kode}`;
+  const holder = el('div', { class: 'w-fit rounded-2xl border border-line bg-white p-3' });
+
+  renderQr(holder, alamat, 196);
+
+  return el(
+    'div',
+    { class: 'flex flex-col gap-4 rounded-2xl border border-tuntas-line bg-tuntas-bg p-4 text-tuntas-fg' },
+    el(
+      'div',
+      { class: 'flex flex-col gap-4 sm:flex-row sm:items-start' },
+      holder,
+      el(
+        'div',
+        { class: 'flex min-w-0 flex-1 flex-col gap-3' },
+        el('p', { class: 'font-display text-[19px] leading-snug' }, judul),
+        el(
+          'p',
+          { class: 'text-[12.5px] leading-relaxed opacity-90' },
+          pesan || 'Minta siswa memindai QR ini dengan kamera HP-nya supaya status di layarnya ikut berubah.',
+        ),
+        el(
+          'div',
+          { class: 'flex flex-wrap items-center gap-2' },
+          button({
+            label: 'Salin kode bukti',
+            variant: 'outline',
+            size: 'sm',
+            onClick: async () => {
+              const done = await copy(kode);
+              toast(done ? 'Kode bukti disalin. Kirim ke siswa.' : 'Gagal menyalin.', { tone: done ? 'sukses' : 'gagal' });
+            },
+          }),
+        ),
+        el('p', { class: 'tnum break-all text-[11px] leading-relaxed opacity-70' }, kode),
+      ),
+    ),
+    catatan ? el('p', { class: 'text-[12px] leading-relaxed opacity-80' }, catatan) : null,
   );
 }

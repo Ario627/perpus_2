@@ -28,32 +28,46 @@ Akses kamera hanya diizinkan browser pada `https://` atau `http://localhost`. Ka
 |---|---|
 | Siswa | Katalog, ajukan pinjam, pinjaman saya, kembalikan buku |
 | Guru | Sama seperti siswa; kelas terisi otomatis sebagai `Guru` |
-| Petugas | Kelola buku, cetak/unduh QR, verifikasi serah terima, riwayat |
+| Petugas | Kelola buku, cetak/unduh QR, verifikasi serah terima, terima pengembalian, riwayat |
 
-Masuk tanpa kata sandi. Sesi disimpan **per tab**, data buku dan pinjaman disimpan **bersama**.
+Masuk tanpa kata sandi. Sesi disimpan **per tab** supaya satu browser bisa memuat siswa dan petugas berdampingan; data buku dan pinjaman disimpan **per perangkat**.
 
-Artinya, satu browser bisa memuat dua peran sekaligus:
+### Skenario A — satu perangkat (paling mulus)
 
 1. Tab 1 → masuk sebagai siswa, buka `#/katalog`, ajukan satu buku.
-2. Layar siswa menampilkan **QR pengajuan** (`PJ-0001`) dengan hitung mundur batas ambil.
-3. Tab 2 → masuk sebagai petugas, buka `#/admin/scan`.
-4. Daftar pengajuan di tab 2 bertambah sendiri tanpa reload.
-5. Petugas pindai QR di layar siswa → status langsung jadi `DIPINJAM`.
-6. Kembali ke tab 1 → `#/pinjaman` → isi form pengembalian → stok kembali tersedia.
+2. Tab 2 → masuk sebagai petugas, buka `#/admin/scan`.
+3. Daftar pengajuan di tab 2 bertambah sendiri tanpa reload.
+4. Petugas pindai QR di layar siswa (atau ketik `PJ-0001`) → status jadi `DIPINJAM`.
+5. Tab 1 → `#/pinjaman` → isi form pengembalian → stok kembali tersedia.
 
-## Dua jenis QR
+### Skenario B — HP siswa + laptop petugas
 
-| QR | Isi | Dibuat di | Dipakai untuk |
+HP dan laptop punya penyimpanan sendiri, jadi pengajuan di HP **tidak terlihat** di laptop. Supaya tetap bisa, QR pengajuan membawa datanya, bukan sekadar nomor:
+
+1. Siswa ajukan dari HP. QR di layarnya berisi kode kiriman `PD1-…`.
+2. Petugas memindai QR itu. Kalau kamera tidak dipakai, siswa menekan **Salin kode kirim** lalu mengirim teksnya lewat chat.
+3. Laptop mengenali kode kiriman, membuat salinan pengajuan lokal, lalu menandainya `DIPINJAM`.
+4. Setelah serah terima, transaksi itu **hidup di laptop**. Pengembalian dicatat petugas dari `#/admin/riwayat` → **Terima kembali**.
+
+Yang perlu disadari: HP siswa tidak ikut ter-update. Tiket di HP-nya hanya berlaku sebagai kode antrean, dan akan tampak batal setelah 1 jam. Kalau butuh status yang benar-benar sama di kedua perangkat, itu sudah wilayah server — lihat `docs/perpustakaan-digital-spec.md` bagian 19.
+
+## Tiga jenis kode
+
+| Kode | Isi | Dibuat di | Dipakai untuk |
 |---|---|---|---|
-| QR buku | `BK-001` | Kelola Buku → tombol QR | Label 3 × 3 cm di sampul buku, dicetak sekali |
-| QR pengajuan | `PJ-0001` | Otomatis saat siswa mengajukan | Ditunjukkan dari layar HP siswa ke petugas |
+| QR buku | `BK-001` | Kelola Buku → tombol QR | Label 3 × 3 cm di sampul, dicetak sekali |
+| Nomor pengajuan | `PJ-0001` | Otomatis saat siswa mengajukan | Disebutkan ke petugas, atau diketik di kolom input |
+| Kode kirim | `PD1-…` (60 karakter) | Isi QR pengajuan, tombol **Salin kode kirim** | Menyeberangkan pengajuan dari HP ke perangkat petugas |
 
-Halaman pemindai menerima keduanya:
+Halaman pemindai menerima ketiganya:
 
-- **QR pengajuan** (`PJ-0001`) — petugas tahu pasti siswa mana yang sedang dilayani, tanpa memilih dari daftar. Ini jalur tercepat dan dipakai untuk demo di HP.
-- **QR buku** (`BK-000`) — dipakai kalau buku yang dipindai lebih mudah dijangkau daripada layar siswa. Kalau ada beberapa pengajuan untuk buku itu, petugas memilih nama yang hadir.
+- **Kode kirim** — jalur tercepat lintas perangkat: satu pindai, petugas langsung tahu siswa mana yang dilayani.
+- **Nomor pengajuan** — untuk demo satu perangkat, atau saat siswa menyebutkan nomornya.
+- **QR buku** — kalau label buku lebih mudah dijangkau daripada layar siswa. Bila ada beberapa pengajuan untuk buku itu, petugas memilih nama yang hadir.
 
-Kode pengajuan hanya ada di `sessionStorage`, jadi QR-nya mati sendiri saat pengajuan batal atau sudah diserahkan. Kirim manual juga bisa: ketik kodenya di kolom input, hasilnya sama.
+Nomor pengajuan hanya ada di perangkat yang membuatnya, jadi memindainya di perangkat lain akan menjawab `TIDAK_ADA_PENGAJUAN`. Gunakan kode kirim untuk kasus itu.
+
+Pengembalian dapat dicatat dari dua sisi: siswa lewat `#/pinjaman`, atau petugas lewat `#/admin/riwayat` → **Terima kembali**. Keduanya meminta kode buku diketik lebih dulu supaya buku fisik benar-benar diperiksa.
 
 ---
 
@@ -88,22 +102,22 @@ js/
     components.js         elemen, badge, modal, toast, field, format waktu
     masuk.js              halaman masuk
     katalog.js            katalog + modal pengajuan + QR pengajuan
-    pinjaman.js           pinjaman aktif, riwayat, form pengembalian
+    pinjaman.js           pinjaman aktif, riwayat, form pengembalian siswa
     adminBuku.js          kelola koleksi, QR, reset data demo
-    adminScan.js          pemindai QR pengajuan & label buku
-    adminRiwayat.js       riwayat transaksi + ekspor CSV
+    adminScan.js          pemindai QR buku, nomor pengajuan, dan kode kirim
+    adminRiwayat.js       riwayat transaksi, ekspor CSV, terima kembali
 ```
 
 `books.js` dan `loans.js` tidak menyentuh DOM, jadi seluruh aturan bisa dipanggil dari console browser:
 
 ```js
-const { createLoan, findScanCandidates, findScanTarget, verifyAndBorrow, returnLoan } = await import('./js/loans.js');
+const { createLoan, findScanTarget, loanPayload, readLoanPayload, verifyAndBorrow, returnLoan } = await import('./js/loans.js');
 const { getStock, browse } = await import('./js/books.js');
 
 createLoan({ kode: 'BK-001', namaSiswa: 'Ario', kelas: 'X PPLG 1' });
 getStock('BK-001');
-findScanCandidates('BK-001');
-findScanTarget('PJ-0001');
+findScanTarget('BK-001');
+findScanTarget(loanPayload({ id: 'PJ-0001', bookKode: 'BK-001', namaSiswa: 'Ario', kelas: 'X PPLG 1', batasAmbil: Date.now() + 3600000 }));
 ```
 
 ---
@@ -130,9 +144,12 @@ findScanTarget('PJ-0001');
 | T16 | Hapus buku yang masih dipinjam | `MASIH_DIPINJAM` |
 | T17 | Dua tab siswa & petugas | daftar pengajuan di tab petugas ikut terbarui |
 | T18 | `DIKEMBALIKAN → DIPINJAM` | `STATUS_TIDAK_VALID` |
-| T19 | Petugas memindai `PJ-0001` dari layar siswa | langsung `DIPINJAM`, tanpa memilih nama |
-| T20 | Petugas memindai `PJ-9999` | `TIDAK_ADA_PENGAJUAN`, pengajuan lain tidak terganggu |
-| T21 | Kode di luar `BK-`/`PJ-` | `QR_TIDAK_DIKENALI` |
+| T19 | Petugas memindai kode kirim dari HP siswa di laptop | pengajuan diimpor, langsung `DIPINJAM`, transaksi hidup di laptop |
+| T20 | Kode kirim ditempel dua kali | tidak ada duplikat; percobaan kedua ditolak `STATUS_TIDAK_VALID` |
+| T21 | Laptop sudah punya `PJ-0001` milik orang lain, lalu kode kirim `PJ-0001` masuk | tidak bentrok: pengajuan baru dapat nomor lokal, milik lama tetap utuh |
+| T22 | Kode di luar `BK-`/`PJ-`/`PD1-` | `QR_TIDAK_DIKENALI` |
+| T23 | Petugas mencatat pengembalian dengan kode buku salah | `KODE_TIDAK_COCOK`, status tetap `DIPINJAM` |
+| T24 | Petugas mencatat pengembalian dengan kode benar | `DIKEMBALIKAN`, stok +1 |
 
 ---
 
@@ -148,6 +165,7 @@ Untuk presentasi, siapkan satu tab siswa dan satu tab petugas di perangkat yang 
 
 - Waktu disimpan sebagai epoch milidetik, jadi kedaluwarsa tetap benar walau tab ditutup lebih dari satu jam.
 - Pemindaian ganda pada QR yang sama ditahan oleh debounce 3 detik dan oleh state machine.
-- QR pengajuan hanya berisi ID pengajuan, bukan identitas siswa, dan hanya berlaku selama pengajuan belum diserahkan.
+- Kode kirim hanya berisi nomor urut, kode buku, nama, kelas, dan batas ambil — tanpa identitas lain, dan mati sendiri setelah batas ambil lewat.
+- Karena tanpa server, kode kirim bisa saja dibuat orang lain dengan isi karangan. Untuk kelas, itu sepadan dengan kemudahan demo; untuk pemakaian sungguhan, keasliannya harus diverifikasi server.
 - Semua teks pengguna dirender lewat `textContent`, jadi tidak ada celah XSS dari input nama, kelas, atau data buku.
 - Bila `localStorage` diblokir (mode privat ketat), aplikasi tetap jalan memakai penyimpanan memori dan memberi tahu lewat data yang hilang saat reload.

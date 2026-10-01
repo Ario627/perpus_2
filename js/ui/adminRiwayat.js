@@ -1,6 +1,7 @@
 import { STATUS, STATUS_UI } from '../config.js';
-import { listLoans, returnLoan } from '../loans.js';
+import { listLoans, receiptPayload, returnLoan } from '../loans.js';
 import {
+  buktiPanel,
   button,
   chip,
   el,
@@ -163,8 +164,24 @@ export function render() {
         return;
       }
 
-      modal.close();
-      toast(`${result.data.bookJudul} diterima kembali dari ${result.data.namaSiswa}.`, { tone: 'sukses' });
+      const selesai = result.data;
+
+      if (selesai.sumberId) {
+        modal.setTitle('Pengembalian tercatat');
+        modal.setDescription('Sinkronkan ke HP siswa supaya status di sana ikut berubah.');
+        modal.setBody(
+          buktiPanel({
+            kode: receiptPayload(selesai),
+            judul: selesai.bookJudul,
+            pesan: 'Minta siswa memindai QR ini, atau salin kodenya lalu kirim lewat chat untuk ditempel di halaman Pinjaman Saya.',
+          }),
+        );
+        modal.setActions([button({ label: 'Selesai', variant: 'primary', onClick: () => modal.close() })]);
+      } else {
+        modal.close();
+      }
+
+      toast(`${selesai.bookJudul} diterima kembali dari ${selesai.namaSiswa}.`, { tone: 'sukses' });
       paint();
     }
   }

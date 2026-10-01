@@ -5,13 +5,15 @@ import {
   ERRORS,
   EXPIRE_CHECK_INTERVAL_MS,
   HOME_ROUTE,
+  KEYS,
   NAV,
+  RECEIPT_PARAM,
   ROLES,
   ROLE_LABEL,
 } from './config.js';
 import { expireOverdueLoans } from './loans.js';
 import { getSession, signOut } from './session.js';
-import { onExternalWrite, isPersistent, seedIfEmpty } from './storage.js';
+import { isPersistent, onExternalWrite, saveTab, seedIfEmpty } from './storage.js';
 import { createRouter } from './router.js';
 import { button, dataList, dataPair, el, formatCountdown, openModal, toast } from './ui/components.js';
 
@@ -35,6 +37,12 @@ const mark = () =>
 const shortName = (session) => (session.role === ROLES.PETUGAS ? ROLE_LABEL[ROLES.PETUGAS] : session.nama.split(' ')[0]);
 
 const identityOf = (session) => (session.role === ROLES.PETUGAS ? ROLE_LABEL[ROLES.PETUGAS] : `${session.nama} · ${session.kelas}`);
+
+const simpanBuktiDariAlamat = () => {
+  const [, query = ''] = String(globalThis.location?.hash ?? '').split('?');
+  const kode = new URLSearchParams(query).get(RECEIPT_PARAM);
+  if (kode) saveTab(KEYS.pendingBukti, kode);
+};
 
 function boot() {
   const sinkron = ({ changed = false, expired = 0 } = {}) => {
@@ -216,6 +224,7 @@ function boot() {
 
   seedIfEmpty();
   renderChrome(getSession(), null);
+  simpanBuktiDariAlamat();
   router.start();
 
   if (!isPersistent()) {

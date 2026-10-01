@@ -11,6 +11,7 @@ export const KEYS = Object.freeze({
   loans: `${STORAGE_PREFIX}loans`,
   meta: `${STORAGE_PREFIX}meta`,
   session: `${STORAGE_PREFIX}session`,
+  pendingBukti: `${STORAGE_PREFIX}bukti`,
 });
 
 export const SECOND = 1_000;
@@ -50,6 +51,9 @@ export const LOAN_PREFIX = 'PJ-';
 export const LOAN_KODE_REGEX = /^PJ-\d{4,}$/;
 export const PAYLOAD_PREFIX = 'PD1-';
 export const PAYLOAD_REGEX = /^PD1-[A-Z2-7]{16,}$/;
+export const RECEIPT_PREFIX = 'PD2-';
+export const RECEIPT_REGEX = /^PD2-[A-Z2-7]{16,}$/;
+export const RECEIPT_PARAM = 'bukti';
 
 export const LIMITS = Object.freeze({
   nama: { min: 2, max: 60 },
@@ -181,6 +185,7 @@ export const ERRORS = Object.freeze({
   STATUS_TIDAK_VALID: 'Perubahan status ini tidak diizinkan.',
   BUKAN_PEMILIK: 'Peminjaman ini bukan milikmu.',
   KODE_TIDAK_COCOK: 'Kode buku tidak cocok dengan pengajuan.',
+  BUKTI_TIDAK_COCOK: 'Kode bukti ini bukan untuk pengajuan di perangkat ini.',
   KODE_DUPLIKAT: 'Kode buku sudah dipakai judul lain.',
   MASIH_DIPINJAM: 'Buku masih punya pinjaman aktif.',
   BELUM_MASUK: 'Masuk dulu untuk membuka halaman ini.',
@@ -188,6 +193,8 @@ export const ERRORS = Object.freeze({
   PENYIMPANAN_PENUH: 'Penyimpanan browser penuh.',
   DATA_RUSAK: 'Data lokal tidak terbaca.',
   KAMERA_GAGAL: 'Kamera tidak bisa dibuka.',
+  KAMERA_DIBLOKIR:
+    'Browser memblokir kamera di alamat ini. Buka aplikasi lewat localhost atau HTTPS, atau pakai kode manual.',
 });
 
 export const SEED_BOOKS = Object.freeze([
